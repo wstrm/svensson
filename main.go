@@ -6,19 +6,21 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
+	"unicode"
 
 	"github.com/mattn/go-xmpp"
 )
 
 var (
-	sendTo                      string
+	nick                        string
+	muc                         string
 	address, password, username string
 	noTLS, startTLS             bool
 )
 
 func init() {
-	flag.StringVar(&sendTo, "send-to", "", "User or group to send to")
+	flag.StringVar(&nick, "nick", "Svensson", "Nick of the bot")
+	flag.StringVar(&muc, "muc", "", "MUC to join")
 	flag.StringVar(&address, "address", "", "XMPP server address")
 	flag.StringVar(&password, "password", "", "Password for the bot")
 	flag.StringVar(&username, "username", "", "Username for the bot")
@@ -26,8 +28,8 @@ func init() {
 	flag.BoolVar(&startTLS, "starttls", false, "Connect with STARTTLS")
 	flag.Parse()
 
-	if sendTo == "" {
-		log.Fatalln("Send-to must be defined")
+	if muc == "" {
+		log.Fatalln("MUC must be defined")
 	}
 
 	if address == "" {
@@ -39,59 +41,23 @@ func init() {
 	}
 }
 
-const (
-	originalExam = "original exam"
-	resitExam    = "resit exam"
-)
-
-type exam struct {
-	month    time.Month
-	day      int
-	examType string
-}
-
-func newExam(month time.Month, day int, examType string) exam {
-	return exam{month, day, examType}
-}
-
-func (e *exam) time() time.Time {
-	now := time.Now()
-	year := now.Year()
-
-	if now.Month() >= e.month {
-		year++
-	} else if now.Month() == e.month && now.Day() > e.day {
-		year++
+func send(client *xmpp.Client, msg string) {
+	_, err := client.Send(
+		xmpp.Chat{
+			Remote: muc,
+			Type:   "groupchat",
+			Text:   msg,
+		})
+	if err != nil {
+		panic(err)
 	}
-
-	log.Println(e, year)
-
-	return time.Date(year, e.month, e.day, 0, 0, 0, 0, time.UTC)
 }
 
-func findClosest(exams []exam) exam {
-	closest := exams[0]
-	var current exam
-	for i := 1; i < len(exams); i++ {
-		current = exams[i]
-
-		if time.Until(current.time()).Nanoseconds() < time.Until(closest.time()).Nanoseconds() {
-			closest = current
-		}
-	}
-
-	return closest
+func commandParser(c rune) bool {
+	return !unicode.IsLetter(c) && !unicode.IsNumber(c)
 }
 
 func main() {
-	exams := []exam{
-		newExam(time.December, 4, resitExam),
-		newExam(time.December, 18, originalExam),
-		newExam(time.February, 22, resitExam),
-		newExam(time.May, 3, originalExam),
-		newExam(time.October, 2, originalExam),
-	}
-
 	var client *xmpp.Client
 	var err error
 
@@ -110,7 +76,7 @@ func main() {
 		StartTLS:      startTLS,
 		Session:       false,
 		Status:        "xa",
-		StatusMessage: "Hello! I'm using XMPP",
+		StatusMessage: fmt.Sprintf("Hello! I'm %s", nick),
 	}
 
 	client, err = options.NewClient()
@@ -118,50 +84,41 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	_, err = client.JoinMUCNoHistory(sendTo, "Tentabot")
+	_, err = client.JoinMUCNoHistory(muc, nick)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	_, err = client.Send(
-		xmpp.Chat{
-			Remote: sendTo,
-			Type:   "groupchat",
-			Text:   "Hejsvejs, jag är Tentabot! Jag kommer påminna er om tentadatum så inte Edvin glömmer :)",
-		})
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	go func() {
-		for {
-			chat, err := client.Recv()
-			if err != nil {
-				log.Fatal(err)
-			}
-			switch v := chat.(type) {
-			case xmpp.Chat:
-				fmt.Println(v.Remote, v.Text)
-			case xmpp.Presence:
-				fmt.Println(v.From, v.Show)
-			}
-		}
-	}()
+	send(client, fmt.Sprintf("Hello, I'm %s and I can't read your OMEMO message because I'm worthless. Please use unencrypted messages when mentioning me until I get my shit together.", nick))
 
 	for {
-		nextExam := findClosest(exams)
+		chat, err := client.Recv()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		log.Println("Next exam: ", nextExam)
-		time.Sleep(time.Until(nextExam.time()))
+		switch v := chat.(type) {
+		case xmpp.Chat:
+			fmt.Println(v.Remote, v.Text)
 
-		client.Send(
-			xmpp.Chat{
-				Remote: sendTo,
-				Type:   "chat",
-				Text: fmt.Sprintf(
-					"Last day to sign up for next exam period today! (%d/%d) [%s]",
-					nextExam.day, nextExam.month, nextExam.examType)})
+			command := strings.FieldsFunc(strings.ToLower(v.Text), commandParser)
 
+			// Make sure the message is for the bot.
+			if len(command) > 0 && strings.EqualFold(command[0], nick) {
+				command = command[1:]
+			} else {
+				continue
+			}
+
+			switch command[0] {
+			case "hi":
+				send(client, "Hi!")
+			default:
+				send(client, "What?")
+			}
+
+		case xmpp.Presence:
+			fmt.Println(v.From, v.Show)
+		}
 	}
-
 }
