@@ -103,8 +103,9 @@ func main() {
 
 			command := strings.FieldsFunc(strings.ToLower(v.Text), commandParser)
 
-			// Make sure the message is for the bot.
-			if len(command) > 0 && strings.EqualFold(command[0], nick) {
+			// Make sure the message is for the bot and that the message contain
+			// a command after the mention.
+			if len(command) > 1 && strings.EqualFold(command[0], nick) {
 				command = command[1:]
 			} else {
 				continue
