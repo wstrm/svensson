@@ -1,5 +1,5 @@
-module github.com/wstrm/tentalarm
+module github.com/wstrm/svensson
 
 go 1.12
 
-require github.com/mattn/go-xmpp v0.0.0-20200128155807-a86b6abcb3ad
+require github.com/wstrm/go-xmpp v0.0.0-20200213174109-3e051a80064b
